@@ -1,0 +1,134 @@
+import React, { useState, useEffect, useRef } from 'react';
+import data from './data.json';
+import { LRUCache } from './lru-cache';
+import styles from './AutofillInput.module.css';
+
+interface Item {
+  id: number;
+  name: string;
+}
+
+const AutofillInput: React.FC = () => {
+  const [inputValue, setInputValue] = useState('');
+  const [filteredItems, setFilteredItems] = useState<Item[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Item[]>([]);
+  const cache = useRef(new LRUCache<string, Item[]>(10));
+  const debounceTimer = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
+  }, []);
+
+  const filterItems = (query: string): Item[] => {
+    if (!query.trim()) return [];
+
+    // Check cache first
+    if (cache.current.has(query)) {
+      return cache.current.get(query) || [];
+    }
+
+    const filtered = data.filter(item =>
+      item.name.toLowerCase().includes(query.toLowerCase())
+    );
+
+    // Update cache
+    cache.current.set(query, filtered);
+    return filtered;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInputValue(value);
+
+    // Debounce the filtering
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = setTimeout(() => {
+      const filtered = filterItems(value);
+      setFilteredItems(filtered);
+      setShowSuggestions(filtered.length > 0 && value.trim() !== '');
+    }, 300);
+  };
+
+  const highlightMatch = (text: string, query: string) => {
+    if (!query) return text;
+
+    const regex = new RegExp(`(${query})`, 'gi');
+    return text.split(regex).map((part, index) =>
+      regex.test(part) ? (
+        <strong key={index}>{part}</strong>
+      ) : (
+        <span key={index}>{part}</span>
+      )
+    );
+  };
+
+  const handleItemToggle = (item: Item) => {
+    setSelectedItems(prev => {
+      const isSelected = prev.some(selected => selected.id === item.id);
+      if (isSelected) {
+        return prev.filter(selected => selected.id !== item.id);
+      } else {
+        return [...prev, item];
+      }
+    });
+  };
+
+  const isItemSelected = (item: Item) => {
+    return selectedItems.some(selected => selected.id === item.id);
+  };
+
+  return (
+    <div className={styles.container}>
+      <h1 className={styles.title}>SearchPro</h1>
+      <input
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={() => setShowSuggestions(filteredItems.length > 0)}
+        onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+        placeholder="Type to search..."
+        className={styles.input}
+      />
+      {showSuggestions && (
+        <ul className={styles.suggestionsList}>
+          {filteredItems.map(item => (
+            <li
+              key={item.id}
+              className={styles.suggestionItem}
+            >
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={isItemSelected(item)}
+                  onChange={() => handleItemToggle(item)}
+                  className={styles.checkbox}
+                />
+                {highlightMatch(item.name, inputValue)}
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {selectedItems.length > 0 && (
+        <div className={styles.selectedItems}>
+          <h3>Selected Items:</h3>
+          <ul>
+            {selectedItems.map(item => (
+              <li key={item.id}>{item.name}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AutofillInput;
